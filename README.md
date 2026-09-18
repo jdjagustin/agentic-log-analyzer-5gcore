@@ -4,11 +4,15 @@ An n8n workflow with a Claude-based AI Agent that watches a real 4G/5G Core (Ope
 
 ![Architecture diagram: five SSH log pulls merged and pre-filtered, feeding a Claude agent with a 3GPP knowledge tool and structured output, branching into a ServiceNow incident and an S3 evidence upload](architecture.svg)
 
-## Where this comes from
+## Why this exists
 
-This started as a personal-lab response to a real gap: an application to Cognizant for a ServiceNow Solution Architect role surfaced that the only prior "AI in network operations" evidence on file was a self-hosted LLM experiment (Ollama), not real agentic AI with tool-calling in production. Rather than write around that gap in the CV, the workflow below was designed, deployed, and debugged end-to-end against the real Core/RAN of a personal 5G lab.
+Anyone can put "agentic AI experience" or "ServiceNow experience" on a resume — neither claim is checkable from the sentence alone. This project exists to make both checkable, by actually building the thing instead of describing it.
 
-A few days later, the same application process surfaced a second, sharper gap: the ServiceNow experience on file was "user only," not "solution architect." Instead of inflating the CV with unverifiable language, the workflow was extended — again for real — with a ServiceNow incident integration and an S3 evidence archive. Both phases are in this repo, and both ran end-to-end against real data, with real bugs debugged live (see the log below).
+The operational problem behind it is real and not lab-specific: a live 4G/5G Core and RAN generate a constant stream of logs across every network function (AMF, MME, RAN), and the overwhelming majority of that stream is normal 3GPP signaling noise — Attach, Detach, idle-timer expiry — that looks alarming to a naive keyword search but means nothing. Watching that by hand doesn't scale past a handful of components, and running every log line through an LLM to find the signal is both slow and needlessly expensive at any real volume. This workflow is a NOC-copilot pattern built to solve exactly that: filter cheaply first, reason with an agent only when something looks genuinely anomalous, ground that reasoning in a real 3GPP knowledge base instead of letting the model guess, force a structured decision instead of a paragraph, and — critically — never let the agent act on its own. It recommends; a human approves.
+
+A detection that never becomes an actionable, trackable incident is just a log line with extra steps. So the workflow doesn't stop at "here's an anomaly" — it opens a real ServiceNow incident, correctly linked via the CMDB to the specific network function that's affected, and archives the evidence next to it, so the loop actually closes: detect → reason → decide → escalate → prove it happened.
+
+Both phases here were validated against the real Core/RAN of a personal 5G lab, not a synthetic scenario — because "I could build this" and "I built this, and here's exactly what broke while I did" are different claims, and only one of them is verifiable. The debugging log further down is the proof.
 
 ## Why this counts as "agentic," not just an LLM call
 
