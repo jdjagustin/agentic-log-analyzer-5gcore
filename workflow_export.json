@@ -1,0 +1,598 @@
+{
+  "name": "Agentic AI - Open5GS Core & RAN Log Analyzer",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/5 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "89343099-a2a7-49a6-adef-a5f17ddc301b",
+      "name": "Every 5 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -560,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "command": "kubectl logs deploy/lab-open5gs-amf -n open5gs --since=24h --tail=200 || true"
+      },
+      "id": "e0989711-05bb-463d-9f2a-d02caf405ee7",
+      "name": "Pull AMF logs (SSH)",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        -304,
+        -288
+      ],
+      "notesInFlow": true,
+      "notes": "Corre sobre Cloudlab-1. Requiere credencial SSH configurada apuntando a jagustin@Cloudlab-1 con kubectl ya configurado en el PATH del usuario."
+    },
+    {
+      "parameters": {
+        "command": "kubectl logs deploy/lab-open5gs-mme -n open5gs --since=24h --tail=200 || true"
+      },
+      "id": "63510420-8621-43ce-89af-06a659c5dd44",
+      "name": "Pull MME logs (SSH)",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        -304,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "command": "kubectl logs lab-srs-lte-srs-lte-0 -n open5gs --since=24h --tail=200 -c enb || true"
+      },
+      "id": "52b22e9a-8f43-4d23-b26d-1672dbe45e45",
+      "name": "Pull RAN logs (SSH)",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        -304,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "amf-1",
+              "name": "component",
+              "type": "string",
+              "value": "AMF"
+            },
+            {
+              "id": "amf-2",
+              "name": "raw",
+              "type": "string",
+              "value": "={{ $json.stdout }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "598c92f7-5fb2-45dc-a211-2c8d36d53677",
+      "name": "Tag AMF",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -80,
+        -288
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "mme-1",
+              "name": "component",
+              "type": "string",
+              "value": "MME"
+            },
+            {
+              "id": "mme-2",
+              "name": "raw",
+              "type": "string",
+              "value": "={{ $json.stdout }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2fbf62b2-a81a-4cd1-a37e-0a7297353b07",
+      "name": "Tag MME",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -80,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ran-1",
+              "name": "component",
+              "type": "string",
+              "value": "RAN-eNB"
+            },
+            {
+              "id": "ran-2",
+              "name": "raw",
+              "type": "string",
+              "value": "={{ $json.stdout }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ef222fda-8b9e-4212-a831-75d3e5d4144c",
+      "name": "Tag RAN",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -80,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "id": "8b2d2af6-ea81-4485-bb30-794882abcb14",
+      "name": "Merge 3 sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        144,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combina los 3 logs etiquetados en un solo bloque de texto\n// y hace una pre-detección barata de anomalías por regex\n// antes de gastar tokens en el agente de IA.\nconst items = $input.all();\nlet combined = '';\nfor (const item of items) {\n  combined += `\\n=== [${item.json.component}] ===\\n${item.json.raw}\\n`;\n}\n\nconst anomalyPattern = /(WARNING|ERROR|FATAL|Could not resolve|refused|failed|Failed|timer expired|CRITICAL)/i;\nconst hasAnomaly = anomalyPattern.test(combined);\n\nreturn [{ json: { combinedLogs: combined, hasAnomaly, checkedAt: new Date().toISOString() } }];"
+      },
+      "id": "611f4e0b-0233-4e80-ada9-b371239cabc3",
+      "name": "Combine + pre-filter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        368,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.hasAnomaly }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c1230612-afae-4e56-ab16-ac11edf173a1",
+      "name": "Anomaly detected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        576,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.combinedLogs }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "Eres un ingeniero senior de NOC/SRE especializado en Core telecom 4G/5G (Open5GS) y RAN (srsRAN/LTE). Recibes logs crudos etiquetados por componente (AMF, MME, RAN-eNB). Tu trabajo:\n1. Identifica cualquier anomalía real (no confundas logs INFO normales de procedimientos 3GPP -Attach, Detach, RACH, timers de idle- con fallas).\n2. Si encuentras un WARNING/ERROR, usa la herramienta lookup_3gpp_pattern para contrastarlo contra patrones conocidos antes de concluir.\n3. Clasifica severidad: INFO, WARNING o CRITICAL.\n4. Da una causa raíz probable en términos de procedimiento 3GPP / arquitectura NFV (ej. resolución DNS de un NF vecino, flap de conexión S1AP, fallo de autenticación, etc).\n5. Recomienda una acción concreta y marca si requiere aprobación humana antes de ejecutarse (nunca recomiendes ejecutar cambios tú mismo).\nResponde siempre en el formato estructurado definido."
+        }
+      },
+      "id": "715f0f45-f1bb-4c74-bddf-dd63166cf448",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        848,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-sonnet-4-5",
+          "mode": "list"
+        },
+        "options": {}
+      },
+      "id": "9b904a8c-9ef7-4b29-aebe-af5da2f84469",
+      "name": "Anthropic Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        736,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "name": "lookup_3gpp_pattern",
+        "description": "Devuelve la explicación canónica de un patrón de log conocido en Open5GS/srsRAN dado un fragmento de texto de búsqueda (ej. 'Could not resolve host', 'connection refused', 'Mobile Reachable timer').",
+        "jsCode": "const patterns = {\n  'could not resolve host': 'Fallo de resolucion DNS interno de Kubernetes hacia otro Network Function (tipicamente SCP o NRF). Comun durante el arranque si el pod dependiente aun no esta Ready. Se autorresuelve por reintento con backoff.',\n  'connection refused': 'El peer (eNB u otro NF) cerro o aun no acepta conexiones SCTP/HTTP2 -- normalmente por reinicio/redeploy del pod remoto.',\n  'mobile reachable timer expired': 'Procedimiento normal 3GPP: el UE quedo idle mas alla del temporizador configurado, el MME inicia detach implicito. No es una falla.',\n  'attach request': 'Procedimiento normal 3GPP de registro de UE en la red (Attach). No es una falla.',\n  'rach': 'Random Access Channel exitoso entre UE y eNodeB. Comportamiento esperado.'\n};\nconst q = (query || '').toLowerCase();\nfor (const key of Object.keys(patterns)) {\n  if (q.includes(key)) return patterns[key];\n}\nreturn 'Patron no encontrado en la base de conocimiento local; usa tu propio criterio experto.';"
+      },
+      "id": "f0e5920d-ba54-4a9d-b4d3-96ca8614c46f",
+      "name": "lookup_3gpp_pattern",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1,
+      "position": [
+        960,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"severity\": { \"type\": \"string\", \"enum\": [\"INFO\", \"WARNING\", \"CRITICAL\"] },\n    \"component\": { \"type\": \"string\" },\n    \"event_summary\": { \"type\": \"string\" },\n    \"probable_root_cause\": { \"type\": \"string\" },\n    \"recommended_action\": { \"type\": \"string\" },\n    \"requires_human_approval\": { \"type\": \"boolean\" }\n  },\n  \"required\": [\"severity\", \"component\", \"event_summary\", \"probable_root_cause\", \"recommended_action\", \"requires_human_approval\"]\n}"
+      },
+      "id": "291865aa-e90b-47fe-9687-f0753d0db39c",
+      "name": "Structured Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        1168,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-sev",
+              "leftValue": "={{ $json.output.severity }}",
+              "rightValue": "INFO",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e3281d47-4a79-46b9-af84-ca4846abc358",
+      "name": "Worth reporting?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "command": "=cat >> ~/telcolab1/ai_log_analysis_report.md << 'EOF'\n\n## {{ $json.output.severity }} - {{ $json.output.component }} - {{ $now.toISO() }}\n**Resumen:** {{ $json.output.event_summary }}\n**Causa raiz probable:** {{ $json.output.probable_root_cause }}\n**Accion recomendada:** {{ $json.output.recommended_action }}\n**Requiere aprobacion humana:** {{ $json.output.requires_human_approval }}\nEOF"
+      },
+      "id": "7c5ef58d-b7a6-4f91-8417-045f7b472800",
+      "name": "Append report (SSH)",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        1792,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "basicAuth",
+        "resource": "incident",
+        "operation": "create",
+        "short_description": "={{ $json.output.severity }} - {{ $json.output.component }}: {{ $json.output.event_summary.substring(0,80) }}",
+        "additionalFields": {
+          "cmdb_ci": "={{ $json.output.component === \"AMF\" ? \"19646ac8837e8310235ac2dfeeaad3db\" : $json.output.component === \"MME\" ? \"1315224c837e8310235ac2dfeeaad3b7\" : $json.output.component === \"RAN\" ? \"6535a24c837e8310235ac2dfeeaad3f8\" : \"\" }}",
+          "description": "={{ \"Root cause: \" + $json.output.probable_root_cause + \"\\n\\nRecommended action: \" + $json.output.recommended_action + \"\\n\\nEvidencia (S3): s3://open5gs-noc-reports/\" + $json.report_key + \".md\" }}",
+          "impact": "={{  $json.output.severity === \"CRITICAL\" ? \"1\" : $json.output.severity === \"WARNING\" ? \"2\" : \"3\"  }}",
+          "urgency": "={{  $json.output.severity === \"CRITICAL\" ? \"1\" : $json.output.severity === \"WARNING\" ? \"2\" : \"3\"  }}"
+        }
+      },
+      "type": "n8n-nodes-base.serviceNow",
+      "typeVersion": 1,
+      "position": [
+        1552,
+        -176
+      ],
+      "id": "0e2de59f-0228-49de-9712-cbf446516c03",
+      "name": "Create an incident"
+    },
+    {
+      "parameters": {
+        "command": "=FILE=/tmp/{{ $json.report_key }}.md; printf '%s\\n' \"## {{ $json.output.severity }} - {{ $json.output.component }} - {{ $now.toISO() }}\" \"\" \"Resumen:\" \"{{ $json.output.event_summary }}\" \"\" \"Causa probable:\" \"{{ $json.output.probable_root_cause }}\" \"\" \"Accion recomendada:\" \"{{ $json.output.recommended_action }}\" > \"$FILE\"; AWS_ENDPOINT_URL=http://192.168.0.17:4566 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=us-east-1 aws s3 cp \"$FILE\" s3://open5gs-noc-reports/{{ $json.report_key }}.md"
+      },
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        32
+      ],
+      "id": "f40785fa-c71c-47d1-a64c-3570740f81cb",
+      "name": "Execute a command"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6b1e6741-b21c-4133-b44e-edd2083676c3",
+              "name": "report_key",
+              "value": "={{ $json.output.component.replace(/[^a-zA-Z0-9]+/g, '-') }}-{{ $now.toFormat('yyyyLLdd-HHmmss') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1344,
+        -176
+      ],
+      "id": "4f7ccb41-0a96-4a8a-beff-f1787740c2a0",
+      "name": "Edit Fields"
+    }
+  ],
+  "connections": {
+    "Every 5 min": {
+      "main": [
+        [
+          {
+            "node": "Pull AMF logs (SSH)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Pull MME logs (SSH)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Pull RAN logs (SSH)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pull AMF logs (SSH)": {
+      "main": [
+        [
+          {
+            "node": "Tag AMF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pull MME logs (SSH)": {
+      "main": [
+        [
+          {
+            "node": "Tag MME",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pull RAN logs (SSH)": {
+      "main": [
+        [
+          {
+            "node": "Tag RAN",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag AMF": {
+      "main": [
+        [
+          {
+            "node": "Merge 3 sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag MME": {
+      "main": [
+        [
+          {
+            "node": "Merge 3 sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge 3 sources": {
+      "main": [
+        [
+          {
+            "node": "Combine + pre-filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine + pre-filter": {
+      "main": [
+        [
+          {
+            "node": "Anomaly detected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anomaly detected?": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "lookup_3gpp_pattern": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Worth reporting?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Worth reporting?": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag RAN": {
+      "main": [
+        [
+          {
+            "node": "Merge 3 sources",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Create an incident": {
+      "main": [
+        [
+          {
+            "node": "Append report (SSH)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Create an incident",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Execute a command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "instanceId": "REDACTED-see-README-for-credential-setup"
+  },
+  "nodeGroups": [],
+  "id": "agentic-log-analyzer-5gcore",
+  "tags": []
+}
