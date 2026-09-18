@@ -157,5 +157,4 @@ There's no retry/backoff logic if a ServiceNow or S3 call fails mid-run, no dedu
 
 ## Related material
 
-- [`AGENTIC-AI-NOC-COPILOT.md`](AGENTIC-AI-NOC-COPILOT.md) — the original architecture/setup writeup, produced before the workflow was actually deployed (kept here as a historical artifact of the design phase; the README above is the accurate, post-deployment account).
 - [`sample_run_log.md`](sample_run_log.md) — full real output and independent verification steps.
